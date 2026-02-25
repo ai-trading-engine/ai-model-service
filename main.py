@@ -35,7 +35,7 @@ TOP_PAIRS = [
 def fetch_data(symbol):
     try:
         url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1h&limit=200"
-        response = requests.get(url, timeout=10)
+        response = requests.get(url, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
 
         if response.status_code != 200:
             return None
