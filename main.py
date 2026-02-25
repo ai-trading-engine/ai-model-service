@@ -135,12 +135,20 @@ def scan_market():
 
     for pair in TOP_PAIRS:
         try:
+            print(f"Checking {pair}")
+
             df = fetch_data(pair)
+
             if df is None:
+                print(f"{pair}: fetch_data returned None")
                 continue
 
+            print(f"{pair}: fetched {len(df)} rows")
+
             df = add_features(df)
+
             if df is None or df.empty:
+                print(f"{pair}: features empty")
                 continue
 
             latest = df.iloc[-1]
@@ -154,18 +162,20 @@ def scan_market():
 
             probability = model.predict_proba(features)[0][1]
 
+            print(f"{pair}: probability {probability}")
+
             results.append({
                 "symbol": pair,
                 "probability": float(round(probability, 4))
             })
 
-        except:
+        except Exception as e:
+            print(f"{pair} ERROR: {e}")
             continue
 
     results = sorted(results, key=lambda x: x["probability"], reverse=True)
 
     return results
-
 # -----------------------
 # Run Server (Render Compatible)
 # -----------------------
