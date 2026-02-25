@@ -131,19 +131,40 @@ def home():
 
 @app.get("/scan")
 def scan_market():
-    signals = []
+    results = []
 
     for pair in TOP_PAIRS:
-        result = analyze_symbol(pair)
-        if result:
-            signals.append(result)
+        try:
+            df = fetch_data(pair)
+            if df is None:
+                continue
 
-    signals = sorted(signals, key=lambda x: x["probability"], reverse=True)
+            df = add_features(df)
+            if df is None or df.empty:
+                continue
 
-    return {
-        "total_signals": len(signals),
-        "signals": signals
-    }
+            latest = df.iloc[-1]
+
+            features = np.array([[
+                latest["rsi"],
+                latest["ema20"],
+                latest["ema50"],
+                latest["volume"]
+            ]])
+
+            probability = model.predict_proba(features)[0][1]
+
+            results.append({
+                "symbol": pair,
+                "probability": float(round(probability, 4))
+            })
+
+        except:
+            continue
+
+    results = sorted(results, key=lambda x: x["probability"], reverse=True)
+
+    return results
 
 # -----------------------
 # Run Server (Render Compatible)
