@@ -10,10 +10,14 @@ import uvicorn
 app = FastAPI()
 
 # -----------------------
-# Load Model
+# Load Model Safely
 # -----------------------
 model = xgb.XGBClassifier()
-model.load_model("model.json")
+
+if os.path.exists("model.json"):
+    model.load_model("model.json")
+else:
+    print("WARNING: model.json not found")
 
 # -----------------------
 # Top 20 USDT-M Pairs
@@ -26,70 +30,100 @@ TOP_PAIRS = [
 ]
 
 # -----------------------
-# Fetch Futures Data
+# Fetch Futures Data Safely
 # -----------------------
 def fetch_data(symbol):
-    url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1h&limit=200"
-    data = requests.get(url).json()
+    try:
+        url = f"https://fapi.binance.com/fapi/v1/klines?symbol={symbol}&interval=1h&limit=200"
+        response = requests.get(url, timeout=10)
 
-    columns = ["time","open","high","low","close","volume",
-               "close_time","qav","trades","taker_base","taker_quote","ignore"]
+        if response.status_code != 200:
+            return None
 
-    df = pd.DataFrame(data, columns=columns)
+        data = response.json()
 
-    df["close"] = df["close"].astype(float)
-    df["high"] = df["high"].astype(float)
-    df["low"] = df["low"].astype(float)
-    df["open"] = df["open"].astype(float)
-    df["volume"] = df["volume"].astype(float)
+        if not isinstance(data, list) or len(data) == 0:
+            return None
 
-    return df
+        columns = [
+            "time","open","high","low","close","volume",
+            "close_time","qav","trades","taker_base","taker_quote","ignore"
+        ]
+
+        df = pd.DataFrame(data, columns=columns)
+
+        df["close"] = df["close"].astype(float)
+        df["high"] = df["high"].astype(float)
+        df["low"] = df["low"].astype(float)
+        df["open"] = df["open"].astype(float)
+        df["volume"] = df["volume"].astype(float)
+
+        return df
+
+    except Exception as e:
+        print(f"Fetch error for {symbol}: {e}")
+        return None
 
 # -----------------------
 # Feature Engineering
 # -----------------------
 def add_features(df):
-    df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
-    df["ema20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
-    df["ema50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
-    df = df.dropna()
-    return df
-
-# -----------------------
-# Generate Signals
-# -----------------------
-def analyze_symbol(symbol):
-    df = fetch_data(symbol)
-    df = add_features(df)
-
-    latest = df.iloc[-1]
-
-    features = np.array([[
-        latest["rsi"],
-        latest["ema20"],
-        latest["ema50"],
-        latest["volume"]
-    ]])
-
-    probability = model.predict_proba(features)[0][1]
-
-    if probability < 0.75:
+    try:
+        df["rsi"] = ta.momentum.RSIIndicator(df["close"], window=14).rsi()
+        df["ema20"] = ta.trend.EMAIndicator(df["close"], window=20).ema_indicator()
+        df["ema50"] = ta.trend.EMAIndicator(df["close"], window=50).ema_indicator()
+        df = df.dropna()
+        return df
+    except:
         return None
 
-    entry = latest["close"]
-    stop = entry * 0.99
-    take_profit = entry * 1.02
+# -----------------------
+# Analyze One Symbol
+# -----------------------
+def analyze_symbol(symbol):
+    try:
+        df = fetch_data(symbol)
 
-    return {
-        "symbol": symbol,
-        "probability": float(probability),
-        "entry": round(entry, 4),
-        "stop_loss": round(stop, 4),
-        "take_profit": round(take_profit, 4)
-    }
+        if df is None or df.empty:
+            return None
+
+        df = add_features(df)
+
+        if df is None or df.empty or len(df) < 1:
+            return None
+
+        latest = df.iloc[-1]
+
+        features = np.array([[
+            latest["rsi"],
+            latest["ema20"],
+            latest["ema50"],
+            latest["volume"]
+        ]])
+
+        probability = model.predict_proba(features)[0][1]
+
+        if probability < 0.75:
+            return None
+
+        entry = latest["close"]
+        stop = entry * 0.99
+        take_profit = entry * 1.02
+
+        return {
+            "symbol": symbol,
+            "probability": float(round(probability, 4)),
+            "entry": round(entry, 4),
+            "stop_loss": round(stop, 4),
+            "take_profit": round(take_profit, 4)
+        }
+
+    except Exception as e:
+        print(f"Analysis error for {symbol}: {e}")
+        return None
 
 # -----------------------
-# API Endpoints
+# API Routes
 # -----------------------
 @app.get("/")
 def home():
