@@ -1,12 +1,10 @@
 from fastapi import FastAPI
-import xgboost as xgb
+import joblib
 import numpy as np
-import os
-import uvicorn
 
 app = FastAPI()
 
-model = xgb.XGBClassifier()
+model = joblib.load("ai_signal_model.pkl")
 
 if os.path.exists("model.json"):
     model.load_model("model.json")
